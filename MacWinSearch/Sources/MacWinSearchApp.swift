@@ -14,49 +14,82 @@ struct MacWinSearchApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem!
-    var popover: NSPopover!
+    var searchWindow: NSWindow!
     var windowManager: WindowManager!
     var eventMonitor: Any?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         windowManager = WindowManager()
         
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "MacWinSearch")
-            button.action = #selector(togglePopover)
+        // Create a custom floating window for better keyboard handling
+        searchWindow = CustomSearchWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        searchWindow.isMovableByWindowBackground = false
+        searchWindow.level = .floating
+        searchWindow.isReleasedWhenClosed = false
+        searchWindow.hidesOnDeactivate = false
+        searchWindow.backgroundColor = NSColor.windowBackgroundColor
+        searchWindow.isOpaque = true
+        searchWindow.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        
+        if #available(macOS 14.0, *) {
+            searchWindow.contentViewController = NSHostingController(rootView: SearchView(windowManager: windowManager))
         }
         
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 400, height: 300)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: SearchView(windowManager: windowManager))
-        
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.modifierFlags.contains([.command, .shift]) && event.keyCode == 13 {
-                self?.togglePopover()
+            if event.modifierFlags.contains(.option) && event.keyCode == 48 {
+                self?.toggleSearchWindow()
+                return
             }
         }
         
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.modifierFlags.contains([.command, .shift]) && event.keyCode == 13 {
-                self?.togglePopover()
+            // Option+Tab to toggle window
+            if event.modifierFlags.contains(.option) && event.keyCode == 48 {
+                self?.toggleSearchWindow()
                 return nil
             }
+            
+            // ESC key handling when window is key
+            if event.keyCode == 53 && self?.searchWindow.isKeyWindow == true {
+                self?.searchWindow.orderOut(nil)
+                return nil
+            }
+            
             return event
         }
         
         requestAccessibilityPermission()
     }
     
-    @objc func togglePopover() {
-        if let button = statusItem.button {
-            if popover.isShown {
-                popover.performClose(nil)
-            } else {
-                popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                popover.contentViewController?.view.window?.makeKey()
+    @objc func toggleSearchWindow() {
+        if searchWindow.isVisible {
+            searchWindow.orderOut(nil)
+        } else {
+            // Center the window on screen
+            if let screen = NSScreen.main {
+                let screenFrame = screen.visibleFrame
+                let windowFrame = searchWindow.frame
+                let x = (screenFrame.width - windowFrame.width) / 2 + screenFrame.origin.x
+                let y = (screenFrame.height - windowFrame.height) / 2 + screenFrame.origin.y
+                searchWindow.setFrameOrigin(NSPoint(x: x, y: y))
+            }
+            
+            // Reset search
+            windowManager.searchText = ""
+            
+            // Make window key and visible immediately
+            NSApp.activate(ignoringOtherApps: true)
+            searchWindow.makeKeyAndOrderFront(nil)
+            
+            // Refresh windows and focus asynchronously for speed
+            DispatchQueue.main.async { [weak self] in
+                self?.windowManager.refreshWindows()
+                self?.windowManager.needsFocus = true
             }
         }
     }

@@ -1,8 +1,8 @@
 import SwiftUI
 
+@available(macOS 14.0, *)
 struct SearchView: View {
     @ObservedObject var windowManager: WindowManager
-    @State private var searchText = ""
     @State private var selectedIndex = 0
     @FocusState private var isSearchFieldFocused: Bool
     
@@ -12,7 +12,7 @@ struct SearchView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
                 
-                TextField("Search windows...", text: $searchText)
+                TextField("Search windows...", text: $windowManager.searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .focused($isSearchFieldFocused)
@@ -21,7 +21,7 @@ struct SearchView: View {
                             selectWindow(at: selectedIndex)
                         }
                     }
-                    .onChange(of: searchText) { newValue in
+                    .onChange(of: windowManager.searchText) { newValue in
                         windowManager.searchWindows(query: newValue)
                         selectedIndex = 0
                     }
@@ -54,24 +54,47 @@ struct SearchView: View {
                     }
                 }
             }
-            .frame(maxHeight: 250)
+            .frame(maxHeight: 350)
         }
+        .frame(width: 600, height: 400)
+        .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             windowManager.refreshWindows()
             isSearchFieldFocused = true
         }
-        .onKeyPress(.downArrow) {
-            if selectedIndex < windowManager.filteredWindows.count - 1 {
-                selectedIndex += 1
+        .onChange(of: windowManager.needsFocus) { needsFocus in
+            if needsFocus {
+                isSearchFieldFocused = true
+                windowManager.needsFocus = false
             }
-            return .handled
         }
-        .onKeyPress(.upArrow) {
-            if selectedIndex > 0 {
-                selectedIndex -= 1
-            }
-            return .handled
-        }
+        .background(
+            Color.clear
+                .onKeyPress(.downArrow) {
+                    if selectedIndex < windowManager.filteredWindows.count - 1 {
+                        selectedIndex += 1
+                    }
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    if selectedIndex > 0 {
+                        selectedIndex -= 1
+                    }
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    if let appDelegate = NSApp.delegate as? AppDelegate {
+                        appDelegate.searchWindow.orderOut(nil)
+                    }
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    if !windowManager.filteredWindows.isEmpty {
+                        selectWindow(at: selectedIndex)
+                    }
+                    return .handled
+                }
+        )
     }
     
     private func selectWindow(at index: Int) {
@@ -80,14 +103,15 @@ struct SearchView: View {
         windowManager.switchToWindow(window)
         
         if let appDelegate = NSApp.delegate as? AppDelegate {
-            appDelegate.popover.performClose(nil)
+            appDelegate.searchWindow.orderOut(nil)
         }
         
-        searchText = ""
+        windowManager.searchText = ""
         selectedIndex = 0
     }
 }
 
+@available(macOS 14.0, *)
 struct WindowRow: View {
     let window: WindowManager.WindowInfo
     let isSelected: Bool
