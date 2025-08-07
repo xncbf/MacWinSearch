@@ -1,10 +1,74 @@
 import SwiftUI
+import AppKit
+
+// Custom NSTextField wrapper that properly handles focus
+struct FocusableTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onSubmit: () -> Void
+    var onChange: (String) -> Void
+    @Binding var shouldFocus: Bool
+    
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.placeholderString = placeholder
+        textField.delegate = context.coordinator
+        textField.isBordered = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        textField.font = .systemFont(ofSize: 16)
+        
+        // Important: Make sure it can become first responder
+        textField.refusesFirstResponder = false
+        
+        return textField
+    }
+    
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        nsView.stringValue = text
+        
+        if shouldFocus {
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+                nsView.selectText(nil)
+                self.shouldFocus = false
+            }
+        }
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: FocusableTextField
+        
+        init(_ parent: FocusableTextField) {
+            self.parent = parent
+        }
+        
+        func controlTextDidChange(_ obj: Notification) {
+            if let textField = obj.object as? NSTextField {
+                parent.text = textField.stringValue
+                parent.onChange(textField.stringValue)
+            }
+        }
+        
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+    }
+}
 
 @available(macOS 14.0, *)
 struct SearchView: View {
     @ObservedObject var windowManager: WindowManager
     @State private var selectedIndex = 0
-    @FocusState private var isSearchFieldFocused: Bool
+    @State private var shouldFocusTextField = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -12,22 +76,20 @@ struct SearchView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
                 
-                TextField("Search windows...", text: $windowManager.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .focused($isSearchFieldFocused)
-                    .onAppear {
-                        isSearchFieldFocused = true
-                    }
-                    .onSubmit {
+                FocusableTextField(
+                    text: $windowManager.searchText,
+                    placeholder: "Search windows...",
+                    onSubmit: {
                         if !windowManager.filteredWindows.isEmpty {
                             selectWindow(at: selectedIndex)
                         }
-                    }
-                    .onChange(of: windowManager.searchText) { newValue in
+                    },
+                    onChange: { newValue in
                         windowManager.searchWindows(query: newValue)
                         selectedIndex = 0
-                    }
+                    },
+                    shouldFocus: $shouldFocusTextField
+                )
             }
             .padding()
             .background(Color(NSColor.controlBackgroundColor))
@@ -63,11 +125,14 @@ struct SearchView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             windowManager.refreshWindows()
-            isSearchFieldFocused = true
+            // Delay focus to ensure view is ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                shouldFocusTextField = true
+            }
         }
         .onChange(of: windowManager.needsFocus) { needsFocus in
             if needsFocus {
-                isSearchFieldFocused = true
+                shouldFocusTextField = true
                 windowManager.needsFocus = false
             }
         }
