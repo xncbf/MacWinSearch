@@ -21,20 +21,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         windowManager = WindowManager()
         
-        // Create a custom floating window for better keyboard handling
-        searchWindow = CustomSearchWindow(
+        // Create a panel for better keyboard handling with borderless style
+        searchWindow = SearchPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        searchWindow.isMovableByWindowBackground = false
-        searchWindow.level = .floating
-        searchWindow.isReleasedWhenClosed = false
-        searchWindow.hidesOnDeactivate = false
-        searchWindow.backgroundColor = NSColor.windowBackgroundColor
-        searchWindow.isOpaque = true
-        searchWindow.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        // Panel properties are set in SearchPanel.setupPanel()
         
         if #available(macOS 14.0, *) {
             searchWindow.contentViewController = NSHostingController(rootView: SearchView(windowManager: windowManager))
@@ -85,11 +79,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Make window key and visible immediately
             NSApp.activate(ignoringOtherApps: true)
             searchWindow.makeKeyAndOrderFront(nil)
+            searchWindow.makeKey()  // Force key window status
             
             // Refresh windows and focus asynchronously for speed
             DispatchQueue.main.async { [weak self] in
                 self?.windowManager.refreshWindows()
                 self?.windowManager.needsFocus = true
+                
+                // Force first responder after view is ready
+                if let window = self?.searchWindow {
+                    window.makeFirstResponder(nil)
+                    window.recalculateKeyViewLoop()
+                }
             }
         }
     }

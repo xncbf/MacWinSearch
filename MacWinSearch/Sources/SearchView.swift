@@ -16,6 +16,9 @@ struct SearchView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .focused($isSearchFieldFocused)
+                    .onAppear {
+                        isSearchFieldFocused = true
+                    }
                     .onSubmit {
                         if !windowManager.filteredWindows.isEmpty {
                             selectWindow(at: selectedIndex)

@@ -12,11 +12,17 @@ class CustomSearchWindow: NSWindow {
     private func setupWindow() {
         // Configure window properties for optimal keyboard handling
         self.level = .floating
-        self.isOpaque = false
-        self.backgroundColor = NSColor.clear
+        self.isOpaque = true
+        self.backgroundColor = NSColor.windowBackgroundColor
         self.hasShadow = true
         self.canHide = false
         self.isReleasedWhenClosed = false
+        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.isMovableByWindowBackground = false
+        
+        // Critical for borderless windows to receive keyboard input
+        self.styleMask.insert(.nonactivatingPanel)
+        self.styleMask.remove(.nonactivatingPanel)  // Add and remove to reset
     }
     
     // MARK: - Keyboard Input Handling
@@ -34,6 +40,23 @@ class CustomSearchWindow: NSWindow {
     /// Ensure the window can become main for full keyboard event handling
     override var canBecomeMain: Bool {
         return true
+    }
+    
+    /// Override to ensure borderless windows can receive events
+    override func resignKey() {
+        super.resignKey()
+        // Don't resign key status when clicked
+    }
+    
+    /// Ensure window can receive keyboard events even when borderless
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown || event.type == .keyUp {
+            // Make sure we're the key window for keyboard events
+            if !self.isKeyWindow {
+                self.makeKey()
+            }
+        }
+        super.sendEvent(event)
     }
     
     // MARK: - Event Handling
@@ -60,16 +83,31 @@ class CustomSearchWindow: NSWindow {
     override func makeKeyAndOrderFront(_ sender: Any?) {
         super.makeKeyAndOrderFront(sender)
         
-        // Immediately try to focus
+        // Force window to be key
+        self.makeKey()
+        
+        // Immediately try to focus with multiple attempts
         DispatchQueue.main.async { [weak self] in
-            // Find and focus the text field
-            if let contentView = self?.contentView {
-                self?.makeFirstResponder(contentView)
-                
-                // Try to find the TextField and make it first responder
-                if let textField = self?.findTextField(in: contentView) {
-                    self?.makeFirstResponder(textField)
-                }
+            self?.forceFocusTextField()
+        }
+        
+        // Retry after a short delay to ensure view is ready
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.forceFocusTextField()
+        }
+    }
+    
+    private func forceFocusTextField() {
+        // Find and focus the text field
+        if let contentView = self.contentView {
+            // First make content view first responder
+            self.makeFirstResponder(contentView)
+            
+            // Then find and focus text field
+            if let textField = self.findTextField(in: contentView) {
+                textField.becomeFirstResponder()
+                self.makeFirstResponder(textField)
+                textField.selectText(nil)
             }
         }
     }
