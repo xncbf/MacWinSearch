@@ -21,6 +21,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         windowManager = WindowManager()
         
+        // Register for app focus notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        
         // Test with debug mode first
         let useDebugView = false  // Toggle this to switch between debug and production view
         
@@ -84,6 +99,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             
             return event
+        }
+        
+        // Monitor mouse clicks
+        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            print("🖱️ Mouse click detected at: \(event.locationInWindow)")
+            
+            // Check if click is outside our window
+            if let window = self?.searchWindow, window.isVisible {
+                let windowFrame = window.frame
+                let clickLocation = NSEvent.mouseLocation
+                
+                if !NSMouseInRect(clickLocation, windowFrame, false) {
+                    print("  -> Click outside window, closing...")
+                    window.orderOut(nil)
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
         }
         
         requestAccessibilityPermission()
@@ -159,13 +191,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             print("\n🟢 After showing window:")
             printWindowState()
             
-            // 8. Refresh windows and trigger focus with multiple attempts
+            // 8. Focus FIRST, then load windows
             DispatchQueue.main.async { [weak self] in
-                self?.windowManager.refreshWindows()
+                // Set focus need immediately
                 self?.windowManager.needsFocus = true
                 
-                // Try to focus immediately
-                print("\n🔷 First focus attempt:")
+                // Try to focus immediately (before loading windows)
+                print("\n🔷 First focus attempt (immediate):")
                 self?.forceTextFieldFocus()
                 
                 // Activate as regular app AFTER window is positioned and shown
@@ -186,15 +218,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     self?.forceTextFieldFocus()
                 }
                 
-                // Try again after a short delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    print("\n🔷 Third focus attempt (0.1s):")
-                    self?.forceTextFieldFocus()
+                // Load windows asynchronously AFTER focus
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.windowManager.refreshWindows()
                 }
                 
-                // One more attempt
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    print("\n🔷 Fourth focus attempt (0.2s):")
+                // Additional focus attempts if needed
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    print("\n🔷 Third focus attempt (0.1s):")
                     self?.forceTextFieldFocus()
                 }
             }
@@ -290,10 +321,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     func windowDidResignKey(_ notification: Notification) {
         print("\n📕 Window DID resign key")
+        printWindowState()
+        // Close window when it loses focus
+        searchWindow.orderOut(nil)
+        // Return to accessory mode when hiding
+        NSApp.setActivationPolicy(.accessory)
     }
     
     func windowDidBecomeMain(_ notification: Notification) {
         print("\n📘 Window DID become main")
+    }
+    
+    func windowDidResignMain(_ notification: Notification) {
+        print("\n📙 Window DID resign main")
+        printWindowState()
+    }
+    
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        print("\n🔶 Window occlusion state changed: \(searchWindow.occlusionState)")
+    }
+    
+    // MARK: - App Focus Notifications
+    
+    @objc func appDidBecomeActive() {
+        print("\n🟩 App became ACTIVE")
+        printWindowState()
+    }
+    
+    @objc func appDidResignActive() {
+        print("\n🟥 App resigned ACTIVE")
+        printWindowState()
+        // Close window when app loses focus
+        if searchWindow.isVisible {
+            print("  -> Closing window because app lost focus")
+            searchWindow.orderOut(nil)
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
     
     func requestAccessibilityPermission() {
