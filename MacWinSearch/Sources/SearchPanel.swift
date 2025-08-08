@@ -12,10 +12,11 @@ class SearchPanel: NSPanel {
     private func setupPanel() {
         // Panel configuration for Spotlight-like behavior
         self.isFloatingPanel = true
-        self.level = .modalPanel  // Changed from .floating to .modalPanel for better focus
+        self.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))  // Same level as screensaver
         self.hidesOnDeactivate = false
         self.isReleasedWhenClosed = false
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .managed, .participatesInCycle]
+        // Use stationary and transient to prevent space switching
+        self.collectionBehavior = [.canJoinAllSpaces, .stationary, .transient, .ignoresCycle]
         
         // Visual setup
         self.isOpaque = true

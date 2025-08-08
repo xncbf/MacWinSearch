@@ -96,18 +96,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if searchWindow.isVisible {
             print("Window is visible, hiding it")
             searchWindow.orderOut(nil)
-            // Return to agent mode when hiding
+            // Return to accessory mode when hiding
             NSApp.setActivationPolicy(.accessory)
         } else {
             print("Window is hidden, showing it")
-            // Center the window on screen
-            if let screen = NSScreen.main {
-                let screenFrame = screen.visibleFrame
-                let windowFrame = searchWindow.frame
-                let x = (screenFrame.width - windowFrame.width) / 2 + screenFrame.origin.x
-                let y = (screenFrame.height - windowFrame.height) / 2 + screenFrame.origin.y
-                searchWindow.setFrameOrigin(NSPoint(x: x, y: y))
-            }
             
             // Reset search
             windowManager.searchText = ""
@@ -117,34 +109,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             print("\n🟡 Before showing window:")
             printWindowState()
             
-            // 1. First, make the app active - CRITICAL for LSUIElement apps
-            NSApp.setActivationPolicy(.regular)  // Temporarily make it a regular app
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.unhide(nil)
-            print("  - App activated with regular policy")
+            // 1. First position the window on current screen BEFORE any activation
+            // Center the window on the screen where the mouse cursor is
+            let mouseLocation = NSEvent.mouseLocation
+            if let currentScreen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
+                print("  - Positioning on screen: \(currentScreen.localizedName)")
+                let screenFrame = currentScreen.visibleFrame
+                let windowFrame = searchWindow.frame
+                let x = (screenFrame.width - windowFrame.width) / 2 + screenFrame.origin.x
+                let y = (screenFrame.height - windowFrame.height) / 2 + screenFrame.origin.y
+                searchWindow.setFrameOrigin(NSPoint(x: x, y: y))
+            } else {
+                // Fallback to main screen if can't detect current screen
+                if let screen = NSScreen.main {
+                    let screenFrame = screen.visibleFrame
+                    let windowFrame = searchWindow.frame
+                    let x = (screenFrame.width - windowFrame.width) / 2 + screenFrame.origin.x
+                    let y = (screenFrame.height - windowFrame.height) / 2 + screenFrame.origin.y
+                    searchWindow.setFrameOrigin(NSPoint(x: x, y: y))
+                }
+            }
             
-            // 2. Show the window
+            // 2. Temporarily move window to current space for fullscreen apps
+            searchWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+            
+            // 3. Show the window 
             searchWindow.orderFrontRegardless()  // Use orderFrontRegardless for borderless
             print("  - Window ordered front")
             
-            // 3. Make it key and main
+            // 4. Activate app without changing policy initially
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.unhide(nil)
+            print("  - App activated")
+            
+            // 5. Make it key and main
             searchWindow.makeMain()
             searchWindow.makeKey()
             print("  - Window made key and main")
             
-            // 4. Force window to front again
+            // 6. Force window to front again
             searchWindow.level = .modalPanel
             searchWindow.makeKeyAndOrderFront(nil)
             print("  - Window level set to modalPanel")
             
-            // 5. Reset first responder
+            // 7. Reset first responder
             searchWindow.makeFirstResponder(nil)
             print("  - First responder reset")
             
             print("\n🟢 After showing window:")
             printWindowState()
             
-            // 6. Refresh windows and trigger focus with multiple attempts
+            // 8. Refresh windows and trigger focus with multiple attempts
             DispatchQueue.main.async { [weak self] in
                 self?.windowManager.refreshWindows()
                 self?.windowManager.needsFocus = true
@@ -153,15 +168,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 print("\n🔷 First focus attempt:")
                 self?.forceTextFieldFocus()
                 
+                // Activate as regular app AFTER window is positioned and shown
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    // Restore collection behavior for all spaces
+                    self?.searchWindow.collectionBehavior = [
+                        .canJoinAllSpaces,
+                        .transient,
+                        .ignoresCycle,
+                        .fullScreenAuxiliary
+                    ]
+                    
+                    NSApp.setActivationPolicy(.regular)
+                    print("  - Changed to regular app policy (delayed)")
+                    
+                    // Try focus again after policy change
+                    print("\n🔷 Second focus attempt (0.05s):")
+                    self?.forceTextFieldFocus()
+                }
+                
                 // Try again after a short delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    print("\n🔷 Second focus attempt (0.1s):")
+                    print("\n🔷 Third focus attempt (0.1s):")
                     self?.forceTextFieldFocus()
                 }
                 
                 // One more attempt
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    print("\n🔷 Third focus attempt (0.2s):")
+                    print("\n🔷 Fourth focus attempt (0.2s):")
                     self?.forceTextFieldFocus()
                 }
             }
