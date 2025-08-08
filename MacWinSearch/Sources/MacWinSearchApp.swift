@@ -121,6 +121,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         requestAccessibilityPermission()
     }
     
+    private func isAnyAppInFullScreen() -> Bool {
+        // Check if the frontmost app is in fullscreen mode
+        if let frontApp = NSWorkspace.shared.frontmostApplication {
+            // Use Accessibility API to check if app has fullscreen windows
+            let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+            
+            var windowsValue: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+            
+            if result == .success,
+               let windows = windowsValue as? [AXUIElement] {
+                for window in windows {
+                    var fullscreenValue: CFTypeRef?
+                    let fullscreenResult = AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &fullscreenValue)
+                    
+                    if fullscreenResult == .success,
+                       let isFullscreen = fullscreenValue as? Bool,
+                       isFullscreen {
+                        print("  - Found fullscreen window in app: \(frontApp.localizedName ?? "Unknown")")
+                        return true
+                    }
+                }
+            }
+        }
+        
+        // Alternative method: Check if any screen has a fullscreen app
+        for screen in NSScreen.screens {
+            // Check if the screen's visible frame differs significantly from its frame
+            // In fullscreen mode, the visible frame is usually much smaller due to the fullscreen app
+            let frameDiff = abs(screen.frame.height - screen.visibleFrame.height)
+            if frameDiff > 50 { // Menu bar is typically ~25px, so > 50 suggests fullscreen
+                print("  - Detected fullscreen based on screen frame difference: \(frameDiff)")
+                return true
+            }
+        }
+        
+        return false
+    }
+    
     @objc func toggleSearchWindow() {
         print("\n========== TOGGLE WINDOW ==========")
         printWindowState()
@@ -140,6 +179,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             
             print("\n🟡 Before showing window:")
             printWindowState()
+            
+            // Check if current app is in fullscreen mode
+            let isFullScreenActive = isAnyAppInFullScreen()
+            print("  - Fullscreen app active: \(isFullScreenActive)")
             
             // 1. First position the window on current screen BEFORE any activation
             // Center the window on the screen where the mouse cursor is
@@ -162,8 +205,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             }
             
-            // 2. Temporarily move window to current space for fullscreen apps
-            searchWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+            // 2. Set collection behavior based on fullscreen state
+            if isFullScreenActive {
+                // For fullscreen apps, we need to move to active space
+                searchWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+                print("  - Using moveToActiveSpace behavior for fullscreen app")
+            } else {
+                // For normal apps, use standard behavior
+                searchWindow.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
+                print("  - Using canJoinAllSpaces behavior for normal app")
+            }
             
             // 3. Show the window 
             searchWindow.orderFrontRegardless()  // Use orderFrontRegardless for borderless
@@ -202,13 +253,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 
                 // Activate as regular app AFTER window is positioned and shown
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    // Restore collection behavior for all spaces
-                    self?.searchWindow.collectionBehavior = [
-                        .canJoinAllSpaces,
-                        .transient,
-                        .ignoresCycle,
-                        .fullScreenAuxiliary
-                    ]
+                    // Only restore collection behavior if not in fullscreen
+                    if !isFullScreenActive {
+                        self?.searchWindow.collectionBehavior = [
+                            .canJoinAllSpaces,
+                            .transient,
+                            .ignoresCycle,
+                            .fullScreenAuxiliary
+                        ]
+                        print("  - Restored collection behavior for normal app")
+                    }
                     
                     NSApp.setActivationPolicy(.regular)
                     print("  - Changed to regular app policy (delayed)")

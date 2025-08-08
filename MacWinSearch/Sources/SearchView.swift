@@ -7,6 +7,7 @@ struct FocusableTextField: NSViewRepresentable {
     var placeholder: String
     var onSubmit: () -> Void
     var onChange: (String) -> Void
+    var onArrowKey: (Bool) -> Void // true for down, false for up
     @Binding var shouldFocus: Bool
     
     func makeNSView(context: Context) -> NSTextField {
@@ -58,6 +59,18 @@ struct FocusableTextField: NSViewRepresentable {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 parent.onSubmit()
                 return true
+            } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onArrowKey(true)
+                return true
+            } else if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onArrowKey(false)
+                return true
+            } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                // ESC key
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    appDelegate.searchWindow.orderOut(nil)
+                }
+                return true
             }
             return false
         }
@@ -87,6 +100,17 @@ struct SearchView: View {
                     onChange: { newValue in
                         windowManager.searchWindows(query: newValue)
                         selectedIndex = 0
+                    },
+                    onArrowKey: { isDown in
+                        if isDown {
+                            if selectedIndex < windowManager.filteredWindows.count - 1 {
+                                selectedIndex += 1
+                            }
+                        } else {
+                            if selectedIndex > 0 {
+                                selectedIndex -= 1
+                            }
+                        }
                     },
                     shouldFocus: $shouldFocusTextField
                 )
@@ -136,33 +160,7 @@ struct SearchView: View {
                 windowManager.needsFocus = false
             }
         }
-        .background(
-            Color.clear
-                .onKeyPress(.downArrow) {
-                    if selectedIndex < windowManager.filteredWindows.count - 1 {
-                        selectedIndex += 1
-                    }
-                    return .handled
-                }
-                .onKeyPress(.upArrow) {
-                    if selectedIndex > 0 {
-                        selectedIndex -= 1
-                    }
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    if let appDelegate = NSApp.delegate as? AppDelegate {
-                        appDelegate.searchWindow.orderOut(nil)
-                    }
-                    return .handled
-                }
-                .onKeyPress(.return) {
-                    if !windowManager.filteredWindows.isEmpty {
-                        selectWindow(at: selectedIndex)
-                    }
-                    return .handled
-                }
-        )
+        // Key handling is now done in FocusableTextField delegate
     }
     
     private func selectWindow(at index: Int) {
