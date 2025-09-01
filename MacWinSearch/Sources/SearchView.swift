@@ -129,11 +129,6 @@ struct SearchView: View {
                                 .onTapGesture {
                                     selectWindow(at: index)
                                 }
-                                .onHover { isHovered in
-                                    if isHovered {
-                                        selectedIndex = index
-                                    }
-                                }
                         }
                     }
                 }
